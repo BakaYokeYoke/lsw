@@ -2283,8 +2283,11 @@ async function pull() {
   const localWins = mine && m.dirty && (!data || (m.changedAt || '') > data.updated_at);
   if (!data || localWins) { await push(); return; }      // première connexion : on envoie les données actuelles
   if (mine && !m.dirty && m.syncedAt === data.updated_at) { setSync('ok', 'Synchronisé · ' + hhmm(new Date())); return; }
+  const before = data.data.schema;
   state = data.data; normalize(); writeLocal();
   writeMeta({ user: user.id, dirty: false, changedAt: data.updated_at, syncedAt: data.updated_at });
+  // version en ligne migrée sur cet appareil : on la renvoie aussitôt, pour que tous les appareils partagent la même migration
+  if (state.schema !== before) markDirty();
   if (drawer) closeDrawer(); else render();
   setSync('ok', 'Synchronisé · ' + hhmm(new Date()));
 }
