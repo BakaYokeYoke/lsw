@@ -86,7 +86,26 @@
   .score b { font-size: 22px; font-weight: 800; }
   .score span { margin-left: 8px; color: var(--muted); font-weight: 600; }
   .score .sc-lbl { margin: 0 8px 0 0; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
-  .score.perso { margin-left: 22px; padding-left: 22px; border-left: 1px solid var(--grid); }
+  .score.perso, .score.exe { margin-left: 22px; padding-left: 22px; border-left: 1px solid var(--grid); }
+  .score.exe .sc-lbl, .score.exe b { color: var(--weekly); }
+  li.check .a-row { padding-top: 5px; padding-bottom: 5px; }
+  li.check .a-name { font-size: 14px; }
+  .pil-tag { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--grid); border-radius: 4px; padding: 0 6px; }
+  .line-tag { font-size: 11px; font-weight: 700; color: #fff; border-radius: 4px; padding: 0 6px; margin-left: 8px; vertical-align: 1px; }
+  .a-name .obj { display: block; font-size: 12.5px; color: var(--ink); font-weight: 400; }
+  .a-name .obj.missing { color: var(--amber); font-weight: 600; }
+  .blocked-msg { color: var(--ko); font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .blocked-msg input { flex: 1; min-width: 200px; border: 1px solid var(--grid); border-radius: 7px; padding: 6px 9px; outline: none; color: var(--ink); }
+  .obj-list { list-style: none; margin: 0; padding: 0; }
+  .obj-list li { padding: 6px 0; border-bottom: 1px solid #f0f1f3; }
+  .obj-list li b { display: block; font-size: 13px; margin-bottom: 4px; }
+  .obj-list input, .obj-field { width: 100%; border: 1px solid var(--grid); border-radius: 7px; padding: 7px 9px; outline: none; }
+  .obj-list li.missing input, .obj-field.missing { border-color: var(--amber); }
+  .closing .err, .pop .err-ok { color: var(--ko); font-size: 12.5px; margin-top: 6px; }
+  .yb { padding: 6px 0; border-bottom: 1px solid #f0f1f3; font-size: 13px; }
+  .yb .muted { display: block; font-size: 12px; }
+  .blocks-bar { border-top: none; padding-top: 6px; }
+  #blocks col.hour { width: 104px; }
   .score.perso .sc-lbl, .score.perso b { color: var(--perso); }
   li.perso .a-row { box-shadow: inset 3px 0 0 var(--perso); }
   li.perso.current .a-row { box-shadow: inset 3px 0 0 var(--perso), inset 6px 0 0 var(--ink); }
@@ -98,7 +117,7 @@
   .agenda > li { border-bottom: 1px solid #eef0f2; }
   .agenda > li:last-child { border-bottom: none; }
   .a-row {
-    display: grid; grid-template-columns: 34px 58px 1fr 200px 120px; align-items: center; gap: 10px;
+    display: grid; grid-template-columns: 34px 96px 1fr 200px 120px; align-items: center; gap: 10px;
     padding: 8px 10px; border-radius: 8px; cursor: pointer;
   }
   .a-row:hover { background: var(--hover); }
@@ -473,7 +492,8 @@
     <div class="today-head">
       <div><div class="eyebrow">Aujourd'hui</div><h1 id="today-date"></h1></div>
       <span class="grow"></span>
-      <div class="score"><span class="sc-lbl">Pro</span><b id="today-score"></b><span id="today-pct"></span></div>
+      <div class="score" title="Checks pro : (✓ + O) / dus"><span class="sc-lbl">Pilotage</span><b id="score-pil"></b></div>
+      <div class="score exe" title="Blocs pro : ✓ / dus"><span class="sc-lbl">Exécution</span><b id="score-exe"></b></div>
       <div class="score perso"><span class="sc-lbl">Perso</span><b id="perso-score"></b></div>
     </div>
     <div class="progress"><i id="today-bar"></i></div>
@@ -540,6 +560,16 @@
     </div>
   </div>
 
+  <!-- ===== Exécution : suivi des blocs ===== -->
+  <div class="toolbar blocks-bar">
+    <div class="part-title">Suivi des blocs <small>exécution · prévu / réel / raison · objectif du jour au survol</small></div>
+    <span class="grow"></span>
+    <button class="tbtn" id="add-block" hidden>+ Ajouter un bloc</button>
+  </div>
+  <div class="sheet" id="blocks-sheet">
+    <div class="scroll"><table class="lsw" id="blocks"></table></div>
+  </div>
+
   <div class="foot">
     <button id="edit-link">Modifier la LSW</button>
     <span class="off-form" id="off-form" hidden>
@@ -584,7 +614,7 @@ const GRID_SECTIONS = [
 ];
 // Section de grille d'une routine (selon sa cadence actuelle), et sa couleur (perso : var(--perso))
 const secOf = r => GRID_SECTIONS.find(s => s.types.includes(curCadence(r).type));
-const secColor = r => r.section === 'perso' ? 'var(--perso)' : secOf(r).color;
+const secColor = r => r.kind === 'block' ? lineColor(r) : r.section === 'perso' ? 'var(--perso)' : secOf(r).color;
 // Pro / Perso affiché dans la LSW, mémorisé
 let scope = 'pro';
 try { if (localStorage.getItem('lsw-scope') === 'perso') scope = 'perso'; } catch {}
@@ -597,6 +627,7 @@ const DEFAULT_CATS = () => [
   { id: 'external', label: 'Dépendance externe' },
   { id: 'energy', label: 'Énergie / fatigue' },
   { id: 'late', label: 'Hors fenêtre' },
+  { id: 'nostart', label: 'Bloc non démarré' },
   { id: 'uncat', label: 'Non catégorisé' },
 ];
 
@@ -761,6 +792,30 @@ function normalize() {
     }
     state.schema = 4;
   }
+  if (state.schema === 4) {
+    // V5 : pilotage (check) / exécution (block). Les ids sont conservés, donc l'historique aussi.
+    state.routines.forEach(r => {
+      const m = (r.name || '').trim().match(/^(build|run|content)\b/i);
+      if (r.section === 'perso') { r.kind = 'block'; r.line = r.name; }
+      else if (!r.type && m) { r.kind = 'block'; r.line = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase(); }
+      else r.kind = 'check';
+      if (!r.type && /^démarrage\b/i.test((r.name || '').trim())) r.type = 'startup';
+      if (/^clôture\b/i.test((r.name || '').trim()) && (r.success || '').trim().toLowerCase() === 'fiche cochée') r.success = 'Suivi des blocs à jour, raisons écrites';
+    });
+    if (!state.routines.some(r => /^check mi-journée/i.test(r.name || ''))) {
+      const r = routine({ name: 'Check mi-journée', time: '14:00', success: 'Blocs du matin saisis, problème traité', kind: 'check', feeds: 'pilotage' });
+      r.cadences = [{ from: ymd(today()), cadence: r.cadence }]; delete r.cadence;
+      state.routines.push(r);
+    }
+    state.reasonCategories ||= DEFAULT_CATS();
+    if (!state.reasonCategories.some(c => c.id === 'nostart')) {
+      const i = state.reasonCategories.findIndex(c => c.id === 'uncat');
+      state.reasonCategories.splice(i < 0 ? state.reasonCategories.length : i, 0, { id: 'nostart', label: 'Bloc non démarré' });
+    }
+    state.schema = 5;
+  }
+  state.objectives ||= {};
+  state.routines.forEach(r => { r.kind ||= 'check'; });
   state.reasonCategories ||= DEFAULT_CATS();
   if (!state.reasonCategories.some(c => c.id === 'uncat')) state.reasonCategories.push({ id: 'uncat', label: 'Non catégorisé' });
   state.indicators.forEach(i => { i.period ||= 'day'; });
@@ -817,9 +872,9 @@ function cadenceLabel(r, c = curCadence(r)) {
   return 'mensuel · ' + monthlyLabel(c);
 }
 // Cadence « X fois par semaine » : nombre de ✓ + O de la semaine ISO commençant au lundi mon
-function quotaCount(r, mon) {
+function quotaCount(r, mon, okOnly = false) {
   let n = 0;
-  for (let i = 0; i < 7; i++) { const s = getLog(r, addDays(mon, i))?.status; if (s === 'ok' || s === 'issue') n++; }
+  for (let i = 0; i < 7; i++) { const s = getLog(r, addDays(mon, i))?.status; if (s === 'ok' || (!okOnly && s === 'issue')) n++; }
   return n;
 }
 // Due aujourd'hui : prévue par la cadence, ou quota pas encore atteint cette semaine, ou déjà saisie aujourd'hui
@@ -829,6 +884,32 @@ function dueToday(r) {
   if (r.archivedAt && ymd(t) >= r.archivedAt) return false;
   const c = cadenceAt(r, t);
   return c?.type === 'quota' && quotaCount(r, mondayOf(t)) < c.times;
+}
+// --- Blocs d'exécution ---
+const isBlock = r => r.kind === 'block';
+const minToTime = m => pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60);
+const timeRange = r => r.time ? r.time + '-' + minToTime(toMin(r.time) + (+r.duration || 0)) : '—';
+const getObjective = (r, d) => state.objectives[ymd(d)]?.[r.id] || '';
+function setObjective(r, d, txt) {
+  const k = ymd(d), v = (txt || '').trim();
+  if (v) (state.objectives[k] ||= {})[r.id] = v;
+  else if (state.objectives[k]) { delete state.objectives[k][r.id]; if (!Object.keys(state.objectives[k]).length) delete state.objectives[k]; }
+  save();
+}
+function lineColor(r) {
+  if (r.section === 'perso') return 'var(--perso)';
+  const l = (r.line || '').toLowerCase();
+  return /build/.test(l) ? 'var(--weekly)' : /gtm|commercial/.test(l) ? 'var(--monthly)' : /content/.test(l) ? 'var(--daily)' : /run/.test(l) ? 'var(--issues)' : 'var(--title)';
+}
+const dueOn = (r, d) => ymd(d) === ymd(today()) ? dueToday(r) : (scheduled(r, d) || !!getLog(r, d));
+// ✓ interdit : bloc sans objectif ; Démarrage tant qu'un bloc pro du jour n'a pas d'objectif
+function okBlocker(r, d) {
+  if (isBlock(r) && !getObjective(r, d)) return 'Fixe l’objectif du bloc avant de le valider.';
+  if (r.type === 'startup') {
+    const miss = state.routines.filter(b => isBlock(b) && b.section === 'pro' && dueOn(b, d) && !getObjective(b, d));
+    if (miss.length) return 'Objectif à fixer pour : ' + miss.map(b => b.name || 'Sans nom').join(', ') + '.';
+  }
+  return null;
 }
 const catLabel = id => state.reasonCategories.find(c => c.id === id)?.label || 'Non catégorisé';
 const reasonText = l => [catLabel(l.category), l.reason].filter(Boolean).join(' · ');
@@ -851,7 +932,8 @@ function windowPassed(r, d) {
   if (d < t) return true;
   if (d > t) return false;
   const start = toMin(r.time);
-  return start != null && start + (+r.duration || 0) < nowMin();
+  // un check est un déclencheur à heure fixe, sans durée
+  return start != null && start + (r.kind === 'block' ? +r.duration || 0 : 0) < nowMin();
 }
 // État d'une case : ok / issue / ko (saisi), late / plan (calculés), off (non prévu)
 function cellState(r, d) {
@@ -864,7 +946,8 @@ function cellState(r, d) {
 // Quota : semaine terminée → due = times, faite = min(✓ + O, times) ; semaine en cours → seule la part
 // devenue impossible (times − faits − jours restants, aujourd'hui inclus) compte comme manquée.
 // Une semaine est comptée dans la période si son dimanche (ou aujourd'hui, semaine en cours) en fait partie.
-function adherence(list, days, skipQuota = false) {
+// okOnly : seuls les ✓ comptent (blocs : objectif atteint)
+function adherence(list, days, skipQuota = false, okOnly = false) {
   let due = 0, done = 0;
   const t = today(), tk = ymd(t), set = new Set(days.map(ymd));
   for (const r of list) {
@@ -873,7 +956,7 @@ function adherence(list, days, skipQuota = false) {
       if (quotaWeeks.has(ymd(mondayOf(d)))) continue; // semaine comptée au quota, pas case par case
       const s = cellState(r, d);
       if (s === 'off' || s === 'plan') continue;
-      due++; if (s === 'ok' || s === 'issue') done++;
+      due++; if (s === 'ok' || (!okOnly && s === 'issue')) done++;
     }
     if (skipQuota) continue;
     for (const mk of quotaWeeks) {
@@ -882,7 +965,7 @@ function adherence(list, days, skipQuota = false) {
       if (!(set.has(ymd(sun)) || (cur && set.has(tk)))) continue;
       const c = cadenceAt(r, cur ? t : sun);
       if (c?.type !== 'quota') continue;
-      const got = Math.min(quotaCount(r, mon), c.times);
+      const got = Math.min(quotaCount(r, mon, okOnly), c.times);
       if (!cur) { due += c.times; done += got; continue; }
       const left = Math.round((sun - t) / 864e5) + 1;
       due += got + Math.max(0, c.times - got - left); done += got;
@@ -989,10 +1072,10 @@ function renderToday() {
   const all = state.routines.filter(dueToday).sort(byTime);
   const pro = all.filter(r => r.section === 'pro'), perso = all.filter(r => r.section === 'perso');
 
-  const score = list => { const done = list.filter(r => ['ok', 'issue'].includes(getLog(r, t)?.status)).length; return { done, n: list.length }; };
-  const sp = score(pro);
-  $('today-score').textContent = sp.done + ' / ' + sp.n;
-  $('today-pct').textContent = sp.n ? Math.round(sp.done / sp.n * 100) + ' %' : '';
+  const score = (list, okOnly) => { const done = list.filter(r => (okOnly ? ['ok'] : ['ok', 'issue']).includes(getLog(r, t)?.status)).length; return { done, n: list.length }; };
+  const sp = score(pro.filter(r => !isBlock(r))), se = score(pro.filter(isBlock), true);
+  $('score-pil').textContent = sp.done + ' / ' + sp.n;
+  $('score-exe').textContent = se.done + ' / ' + se.n;
   $('today-bar').style.width = sp.n ? sp.done / sp.n * 100 + '%' : '0';
 
   // ▶ = routine en cours : l'heure la plus tardive déjà passée, non faite
@@ -1013,30 +1096,52 @@ function fillAgenda(ol, list, current, emptyText) {
   list.forEach(r => {
     const l = getLog(r, t), late = !l && windowPassed(r, t);
     const isPending = pending?.rid === r.id;
-    const li = el('li', (l ? 'done' : '') + (late ? ' late' : '') + (r === current ? ' current' : '') + (r.section === 'perso' ? ' perso' : ''));
+    const li = el('li', (l ? 'done' : '') + (late ? ' late' : '') + (r === current ? ' current' : '') + (r.section === 'perso' ? ' perso' : '') + (isBlock(r) ? ' block' : ' check'));
     const row = el('div', 'a-row');
 
-    const shown = isPending ? pending.status : l?.status;
+    const shown = isPending && pending.status !== 'blocked' ? pending.status : l?.status;
     const st = el('button', 'st ' + (shown || (r === current ? 'now' : late ? 'late' : 'todo')) + (isPending ? ' pending' : ''),
       shown ? STATUS[shown].glyph : r === current ? '▶' : late ? '!' : '');
     st.title = 'Clic : à faire → ✓ → O → ×';
     st.addEventListener('click', e => { e.stopPropagation(); cycleStatus(r); });
 
     const name = el('span', 'a-name', r.name || 'Sans nom');
+    const qc = cadenceAt(r, t);
+    if (isBlock(r)) {
+      if (r.line) { const lt = el('span', 'line-tag', r.line); lt.style.background = lineColor(r); name.append(lt); }
+      const obj = getObjective(r, t);
+      name.append(el('span', 'obj' + (obj ? '' : ' missing'), obj ? 'Objectif : ' + obj : 'objectif à fixer'));
+    }
     if (l && l.status !== 'ok') name.append(el('span', 'why', reasonText(l)));
     else if (late) name.append(el('span', 'why', 'fenêtre passée, rien de saisi'));
-    const cad = el('span', 'a-cad'); const dot = el('i');
-    dot.style.background = secColor(r);
-    const qc = cadenceAt(r, t);
-    cad.append(dot, qc?.type === 'quota' ? quotaCount(r, mondayOf(t)) + ' / ' + qc.times + ' cette semaine' : cadenceLabel(r));
+    const cad = el('span', 'a-cad');
+    if (isBlock(r)) {
+      const dot = el('i'); dot.style.background = secColor(r);
+      cad.append(dot, qc?.type === 'quota' ? quotaCount(r, mondayOf(t)) + ' / ' + qc.times + ' cette semaine' : cadenceLabel(r));
+    } else cad.append(el('span', 'pil-tag', 'pilotage'));
     const run = el('span', 'a-run');
     if (state.run?.rid === r.id) { run.dataset.run = '1'; }
 
-    row.append(st, el('span', 'a-time', r.time || '—'), name, cad, run);
+    row.append(st, el('span', 'a-time', isBlock(r) ? timeRange(r) : r.time || '—'), name, cad, run);
     row.addEventListener('click', () => openDrawer('routine', r.id));
     li.append(row);
 
-    if (isPending) {
+    if (isPending && pending.status === 'blocked') {
+      // ✓ refusé : objectif manquant
+      const box = el('div', 'reason-inline'), msg = el('div', 'blocked-msg', pending.msg);
+      if (isBlock(r)) {
+        const i = el('input'); i.placeholder = 'Objectif du jour, puis Entrée pour valider ✓';
+        i.addEventListener('keydown', e => {
+          if (e.key === 'Escape') { pending = null; render(); }
+          if (e.key === 'Enter' && i.value.trim()) { setObjective(r, t, i.value); setLog(r, t, { status: 'ok' }); pending = null; render(); }
+        });
+        msg.append(i);
+      } else {
+        const b = el('button', 'btn', 'Ouvrir Démarrage'); b.addEventListener('click', () => { pending = null; openDrawer('routine', r.id); });
+        msg.append(b);
+      }
+      box.append(msg); li.append(box);
+    } else if (isPending) {
       const box = el('div', 'reason-inline');
       box.append(reasonForm(pending.status, l, v => {
         setLog(r, t, { status: pending.status, ...v }); pending = null; render();
@@ -1050,14 +1155,17 @@ function fillAgenda(ol, list, current, emptyText) {
 
 // à faire → ✓ → O → × → à faire. O et × attendent une raison avant d'être enregistrés.
 function cycleStatus(r) {
-  const t = today(), cur = pending?.rid === r.id ? pending.status : getLog(r, t)?.status || null;
+  const t = today(), p = pending?.rid === r.id ? pending.status : null;
+  const cur = p === 'blocked' ? 'ok' : p || getLog(r, t)?.status || null;
   const next = { null: 'ok', ok: 'issue', issue: 'ko', ko: null }[cur];
   pending = null;
-  if (next === 'ok') setLog(r, t, { status: 'ok' });
+  const block = next === 'ok' && okBlocker(r, t);
+  if (block) pending = { rid: r.id, status: 'blocked', msg: block };
+  else if (next === 'ok') setLog(r, t, { status: 'ok' });
   else if (next === null) setLog(r, t, null);
   else pending = { rid: r.id, status: next };
   render();
-  if (pending) setTimeout(() => document.querySelector('.reason-inline select')?.focus(), 20);
+  if (pending) setTimeout(() => document.querySelector('.reason-inline select, .reason-inline input')?.focus(), 20);
 }
 
 // Formulaire de raison pour O et × : catégorie obligatoire, précision libre optionnelle
@@ -1117,6 +1225,7 @@ function renderSheet() {
   if (document.activeElement !== $('role')) $('role').value = state.role;
   $('role-label').textContent = (state.role || 'Fonction') + (state.owner ? ' · ' + state.owner : '');
   renderGrid();
+  renderBlocks();
   renderIssues();
   renderCats();
   if (document.activeElement !== $('notes')) $('notes').value = state.notes[monthKey(viewMonth)] || '';
@@ -1134,7 +1243,7 @@ function renderGrid() {
 
   for (const sec of GRID_SECTIONS) {
     // une routine archivée reste visible dans les mois où elle était active
-    const list = state.routines.filter(r => r.section === scope && sec.types.includes(curCadence(r).type)
+    const list = state.routines.filter(r => r.kind === 'check' && r.section === scope && sec.types.includes(curCadence(r).type)
       && (!r.archivedAt || r.archivedAt > ymd(viewMonth))).sort(byTime);
     const tb = el('tbody');
 
@@ -1208,7 +1317,7 @@ function renderGrid() {
   }
 
   // % par jour (section affichée, routines « X / sem » exclues)
-  const pro = state.routines.filter(r => r.section === scope);
+  const pro = state.routines.filter(r => r.kind === 'check' && r.section === scope);
   const foot = el('tbody'); const tr = el('tr', 'dayp');
   const lbl = el('td', '', 'Tenu ce jour (' + scope + ') — (✓ + O) / prévus échus'); lbl.colSpan = 3; tr.append(lbl);
   weeks.forEach(days => days.forEach((d, i) => {
@@ -1220,6 +1329,89 @@ function renderGrid() {
   const m = adherence(pro, monthDays);
   tr.append(el('td', 'p wkstart', m.pct == null ? '' : m.pct + '%'));
   foot.append(tr); table.append(foot);
+}
+
+// =====================================================================
+// Suivi des blocs : même fiche mensuelle, lignes groupées par « line »
+// =====================================================================
+function renderBlocks() {
+  $('add-block').hidden = !editMode;
+  const weeks = weeksOf(viewMonth), t = ymd(today()), table = $('blocks');
+  const monthDays = weeks.flat().filter(inMonth);
+  table.innerHTML = '';
+  const cg = el('colgroup');
+  cg.append(el('col', 'no'), el('col', 'name'), el('col', 'hour'));
+  weeks.forEach(() => WD.forEach(() => cg.append(el('col', 'day'))));
+  cg.append(el('col', 'pct'));
+  table.append(cg);
+  const blocks = state.routines.filter(r => isBlock(r) && r.section === scope && (!r.archivedAt || r.archivedAt > ymd(viewMonth))).sort(byTime);
+  const lines = [...new Set(blocks.map(r => r.line || 'Sans ligne'))];
+  const headRow = () => {
+    const s = el('tr', 'sub');
+    s.append(el('th', 'c', 'N°'), el('th', '', 'Bloc'), el('th', 'c', 'Plage'));
+    weeks.forEach(days => days.forEach((d, i) => {
+      const c = el('th', 'c' + (i === 0 ? ' wkstart' : '') + (i > 4 ? ' we' : '') + (inMonth(d) ? '' : ' out-day') + (ymd(d) === t ? ' today' : ''));
+      c.append(WD[i], el('small', inMonth(d) ? '' : 'out', d.getDate()));
+      s.append(c);
+    }));
+    s.append(el('th', 'c wkstart', ''));
+    return s;
+  };
+  if (!lines.length) {
+    const tb = el('tbody'), tr = el('tr', 'empty-row');
+    const td = el('td', '', editMode ? 'Aucun bloc. « + Ajouter un bloc » ci-dessus.' : 'Aucun bloc ' + (scope === 'perso' ? 'perso' : 'pro') + '.');
+    td.colSpan = 4 + weeks.length * 7; tr.append(td); tb.append(tr); table.append(tb); return;
+  }
+  lines.forEach(line => {
+    const list = blocks.filter(r => (r.line || 'Sans ligne') === line), color = lineColor(list[0]);
+    const tb = el('tbody');
+    const h = el('tr', 'sec');
+    const th = el('th', '', line); th.colSpan = 3; th.style.background = color; th.style.borderColor = color; h.append(th);
+    weeks.forEach((_, i) => { const w = el('th', 'wk wkstart', 'Semaine ' + (i + 1)); w.colSpan = 7; h.append(w); });
+    h.append(el('th', 'pcth wkstart', '% ✓'));
+    tb.append(h, headRow());
+    list.forEach((r, idx) => {
+      const tr = el('tr', 'act' + (drawer?.id === r.id ? ' selected' : '') + (r.archivedAt ? ' archived' : ''));
+      tr.append(el('td', 'no', (idx + 1) + '.'));
+      const name = el('td', 'name');
+      name.append(el('span', r.name ? 'nm' : 'nm empty', r.name || 'Sans nom'));
+      const lbl = cadenceLabel(r);
+      if (lbl !== 'quotidien') name.append(el('span', 'rule', '(' + lbl.replace(/^(quotidien|hebdo|mensuel) · /, '') + ')'));
+      if (r.archivedAt) name.append(el('span', 'rule', 'archivée le ' + shortDate(parseYmd(r.archivedAt))));
+      tr.append(name);
+      const c = curCadence(r);
+      tr.append(el('td', 'hour', c.type === 'quota' ? c.times + '× / sem' : c.type === 'monthly' ? shortDate(monthlyDate(c, viewMonth)) : timeRange(r)));
+      tr.addEventListener('click', () => openDrawer('routine', r.id));
+      weeks.forEach(days => days.forEach((d, i) => {
+        const td = el('td', 'cell' + (i === 0 ? ' wkstart' : '') + (ymd(d) === t ? ' today' : ''));
+        if (!inMonth(d)) { td.classList.add('out'); tr.append(td); return; }
+        const st = cellState(r, d), l = getLog(r, d), obj = getObjective(r, d);
+        td.classList.add(st);
+        if (l) td.textContent = STATUS[l.status].glyph;
+        const tip = [obj ? 'Objectif : ' + obj : 'Pas d’objectif fixé'];
+        if (l) tip.push(STATUS[l.status].label + (l.status !== 'ok' ? ' : ' + reasonText(l) : ''));
+        else if (st === 'late') tip.push('En retard : prévu, fenêtre passée, rien de saisi');
+        td.title = tip.join('\n');
+        if (d <= today()) { td.classList.add('click'); td.addEventListener('click', e => { e.stopPropagation(); openPop(td, r, d); }); }
+        tr.append(td);
+      }));
+      const a = adherence([r], monthDays, false, true);
+      const pc = el('td', 'pct wkstart', a.pct == null ? '' : a.pct + '%'); pc.title = a.done + ' ✓ / ' + a.due + ' blocs dus échus';
+      tr.append(pc); tb.append(tr);
+    });
+    // sous-total de la ligne : ✓ / dus échus, par jour et sur le mois
+    const st = el('tr', 'dayp');
+    const lb = el('td', '', 'Sous-total ' + line + ' — ✓ / blocs dus échus'); lb.colSpan = 3; st.append(lb);
+    weeks.forEach(days => days.forEach((d, i) => {
+      const a = inMonth(d) ? adherence(list, [d], true, true) : { pct: null };
+      const cc = el('td', 'p' + (i === 0 ? ' wkstart' : ''), a.pct == null ? '' : String(a.pct));
+      if (a.pct != null) cc.title = a.done + ' / ' + a.due;
+      st.append(cc);
+    }));
+    const m = adherence(list, monthDays, false, true);
+    st.append(el('td', 'p wkstart', m.pct == null ? '' : m.pct + '%'));
+    tb.append(st); table.append(tb);
+  });
 }
 
 function renderCats() {
@@ -1273,6 +1465,7 @@ function openPop(anchor, r, d) {
   box.innerHTML = '';
   const t = el('div', 't'); t.append(el('b', '', r.name || 'Sans nom'), ' · ' + WD_LONG[dow(d)] + ' ' + shortDate(d));
   if (!scheduled(r, d)) t.append(' (non prévu)');
+  if (isBlock(r)) t.append(el('div', '', getObjective(r, d) ? 'Objectif : ' + getObjective(r, d) : 'Pas d’objectif fixé'));
   box.append(t);
   if (!editable(d)) {
     // au-delà de la veille : lecture seule
@@ -1289,7 +1482,11 @@ function openPop(anchor, r, d) {
   const ch = el('div', 'choices'), form = el('div');
   const mk = k => { const b = el('button', l?.status === k ? 'on' : ''); b.append(el('span', 'badge ' + k, STATUS[k].glyph), STATUS[k].label.split(' ')[0]); return b; };
   const bOk = mk('ok'), bIs = mk('issue'), bKo = mk('ko');
-  bOk.addEventListener('click', () => { setLog(r, d, { status: 'ok' }); closePop(); render(); });
+  bOk.addEventListener('click', () => {
+    const why = okBlocker(r, d);
+    if (why) { form.innerHTML = ''; form.append(el('div', 'err-ok', why)); return; }
+    setLog(r, d, { status: 'ok' }); closePop(); render();
+  });
   const ask = k => {
     [bIs, bKo].forEach(b => b.classList.remove('on')); (k === 'issue' ? bIs : bKo).classList.add('on');
     form.innerHTML = '';
@@ -1363,17 +1560,27 @@ function renderRoutineDrawer(box) {
   const r = state.routines.find(x => x.id === drawer.id);
   if (!r) { closeDrawer(); return; }
   const sec = secOf(r);
-  const kind = r.type === 'daily-accountability' ? 'Daily accountability' : r.type === 'weekly-review' ? 'Revue hebdo'
-    : { daily: 'Routine quotidienne', weekly: 'Routine hebdomadaire', monthly: 'Routine mensuelle' }[sec.key] + (r.section === 'perso' ? ' · perso' : '');
+  const kind = r.type === 'daily-accountability' ? 'Daily accountability' : r.type === 'weekly-review' ? 'Revue hebdo' : r.type === 'startup' ? 'Démarrage'
+    : isBlock(r) ? 'Bloc d’exécution' + (r.line ? ' · ' + r.line : '') + (r.section === 'perso' ? ' · perso' : '')
+    : 'Pilotage · ' + { daily: 'quotidien', weekly: 'hebdomadaire', monthly: 'mensuel' }[sec.key] + (r.section === 'perso' ? ' · perso' : '');
   const body = drawerHead(box, secColor(r), kind);
   const t = today();
 
   if (editMode && !r.archivedAt) {
     field(body, 'Nom', textInput('name', r.name, v => { r.name = v; save(); renderSheet(); renderToday(); }));
+    if (isBlock(r)) {
+      const li = textInput('line', r.line, v => { r.line = v.trim(); save(); renderSheet(); renderToday(); });
+      li.setAttribute('list', 'line-options'); li.placeholder = 'Build, GTM, Content, Run…';
+      const dl = el('datalist'); dl.id = 'line-options';
+      [...new Set([...state.indicators.map(i => i.name), ...state.routines.filter(isBlock).map(b => b.line).filter(Boolean)])].forEach(v => { const o = el('option'); o.value = v; dl.append(o); });
+      field(body, 'Ligne', li); body.append(dl);
+    }
     const two = el('div', 'row2');
     const ft = el('div', 'f'); ft.append(el('label', '', 'Heure'), textInput('time', r.time, v => { r.time = v; save(); renderSheet(); renderToday(); }, 'time'));
-    const fd = el('div', 'f'); fd.append(el('label', '', 'Durée (min)'), textInput('duration', r.duration, v => { const n = parseInt(v, 10); if (n > 0) { r.duration = n; save(); } }, 'number'));
-    two.append(ft, fd); body.append(two);
+    two.append(ft);
+    // un check n'a pas de durée
+    if (isBlock(r)) { const fd = el('div', 'f'); fd.append(el('label', '', 'Durée (min)'), textInput('duration', r.duration, v => { const n = parseInt(v, 10); if (n > 0) { r.duration = n; save(); renderSheet(); renderToday(); } }, 'number')); two.append(fd); }
+    body.append(two);
     field(body, 'Critère de succès', textInput('success', r.success, v => { r.success = v; save(); renderSheet(); }));
     const secSel = el('select'); secSel.dataset.k = 'section';
     [['pro', 'Pro'], ['perso', 'Perso']].forEach(([v, l]) => { const o = el('option', '', l); o.value = v; o.selected = r.section === v; secSel.append(o); });
@@ -1390,7 +1597,8 @@ function renderRoutineDrawer(box) {
     body.append(el('div', 'dname', r.name || 'Sans nom'));
     if (r.archivedAt) body.append(el('div', 'dmeta', 'Archivée le ' + shortDate(parseYmd(r.archivedAt)) + ' · historique conservé'));
     const meta = el('div', 'dmeta');
-    meta.append(el('b', '', r.time || 'sans heure'), ' · ' + r.duration + ' min · ' + cadenceLabel(r));
+    if (isBlock(r)) meta.append(el('b', '', timeRange(r)), ' · ' + r.duration + ' min · ' + cadenceLabel(r));
+    else meta.append(el('b', '', r.time || 'sans heure'), ' · ' + cadenceLabel(r));
     body.append(meta);
     if (r.success) { const s = el('div', 'dsucc'); s.append(el('span', '', 'Succès = '), r.success); body.append(s); }
     if (r.link) {
@@ -1399,8 +1607,33 @@ function renderRoutineDrawer(box) {
     }
   }
 
-  // Timer de timebox (rien n'est enregistré)
-  if (!editMode && !r.archivedAt) {
+  // Objectif du jour : modifiable aujourd'hui seulement
+  if (isBlock(r) && !editMode && !r.archivedAt && dueToday(r)) {
+    h3(body, 'Objectif du jour');
+    const o = textInput('objective', getObjective(r, t), v => { setObjective(r, t, v); renderToday(); renderBlocks(); });
+    o.className = 'obj-field' + (getObjective(r, t) ? '' : ' missing'); o.placeholder = 'Ce que ce bloc doit produire aujourd’hui';
+    o.addEventListener('change', () => renderDrawer());
+    body.append(o);
+  }
+  // Démarrage : fixer l'objectif de chaque bloc du jour
+  if (r.type === 'startup' && !editMode) {
+    h3(body, 'Objectifs des blocs du jour');
+    const ul = el('ul', 'obj-list');
+    const due = state.routines.filter(b => isBlock(b) && dueToday(b)).sort(byTime);
+    if (!due.length) ul.append(el('li', 'muted', 'Aucun bloc prévu aujourd’hui.'));
+    due.forEach(b => {
+      const li = el('li', getObjective(b, t) ? '' : 'missing');
+      li.append(el('b', '', timeRange(b) + ' · ' + (b.name || 'Sans nom') + (b.section === 'perso' ? ' (perso)' : '')));
+      const i = textInput('obj-' + b.id, getObjective(b, t), v => { setObjective(b, t, v); renderToday(); renderBlocks(); });
+      i.placeholder = 'Objectif du jour';
+      i.addEventListener('change', () => renderDrawer());
+      li.append(i); ul.append(li);
+    });
+    body.append(ul);
+  }
+
+  // Timer de timebox (blocs uniquement, rien n'est enregistré)
+  if (isBlock(r) && !editMode && !r.archivedAt) {
     h3(body, 'Timebox');
     const tm = el('div', 'timer');
     const clock = el('span', 't-clock'); clock.dataset.clock = r.id;
@@ -1446,7 +1679,7 @@ function renderRoutineDrawer(box) {
     add.style.marginTop = '8px';
     add.addEventListener('click', () => { const s = { id: uid(), text: '' }; r.steps.push(s); save(); renderDrawer(); $('drawer').querySelector('[data-k="step-' + s.id + '"]')?.focus(); });
     body.append(add);
-  } else if (r.steps.length && !running) body.append(el('div', 'muted', 'Les étapes deviennent cochables une fois le timer démarré.'));
+  } else if (isBlock(r) && r.steps.length && !running) body.append(el('div', 'muted', 'Les étapes deviennent cochables une fois le timer démarré.'));
 
   if (r.type === 'daily-accountability' && !editMode) dailyAccountability(body);
   if (r.type === 'weekly-review') weeklyReview(body);
@@ -1459,11 +1692,17 @@ function renderRoutineDrawer(box) {
     const ch = el('div', 'choices'), form = el('div');
     const mk = k => { const b = el('button', l?.status === k || drawer.closing === k ? 'on' : ''); b.append(el('span', 'badge ' + k, STATUS[k].glyph), STATUS[k].label); return b; };
     const bOk = mk('ok'), bIs = mk('issue'), bKo = mk('ko');
-    bOk.addEventListener('click', () => { drawer.closing = null; setLog(r, t, { status: 'ok' }); render(); });
-    bIs.addEventListener('click', () => { drawer.closing = 'issue'; renderDrawer(); });
-    bKo.addEventListener('click', () => { drawer.closing = 'ko'; renderDrawer(); });
+    bOk.addEventListener('click', () => {
+      drawer.closing = null;
+      drawer.okErr = okBlocker(r, t);
+      if (drawer.okErr) { renderDrawer(); return; }
+      setLog(r, t, { status: 'ok' }); render();
+    });
+    bIs.addEventListener('click', () => { drawer.closing = 'issue'; drawer.okErr = null; renderDrawer(); });
+    bKo.addEventListener('click', () => { drawer.closing = 'ko'; drawer.okErr = null; renderDrawer(); });
     ch.append(bOk, bIs, bKo);
     wrap.append(ch);
+    if (drawer.okErr && !drawer.closing) wrap.append(el('div', 'err', drawer.okErr));
     if (drawer.closing) {
       form.append(reasonForm(drawer.closing, l?.status === drawer.closing ? l : null, v => {
         setLog(r, t, { status: drawer.closing, ...v }); drawer.closing = null; render();
@@ -1638,6 +1877,24 @@ function dailyAccountability(body) {
     body.append(row);
   });
 
+  h3(body, 'Blocs d’hier');
+  const y = prevBusinessDay(t);
+  const yb = state.routines.filter(b => isBlock(b) && b.section === 'pro' && ['issue', 'ko'].includes(getLog(b, y)?.status));
+  if (!yb.length) body.append(el('div', 'muted', 'Aucun bloc O ou × le ' + WD_LONG[dow(y)] + ' ' + shortDate(y) + '.'));
+  yb.forEach(b => {
+    const l = getLog(b, y), row = el('div', 'yb');
+    row.append(el('span', 'badge ' + l.status, STATUS[l.status].glyph), ' ', el('b', '', b.name || 'Sans nom'), ' — ' + reasonText(l));
+    row.append(el('span', 'muted', getObjective(b, y) ? 'Objectif : ' + getObjective(b, y) : 'Pas d’objectif fixé'));
+    const src = 'block-' + b.id;
+    if (drawer.newAction?.source === src) row.append(actionForm((b.name || 'Bloc') + ' : ', src));
+    else {
+      const a = el('button', 'btn', '+ Créer une action'); a.style.color = 'var(--ko)'; a.style.marginTop = '4px';
+      a.addEventListener('click', () => { drawer.newAction = { source: src }; renderDrawer(); });
+      row.append(a);
+    }
+    body.append(row);
+  });
+
   h3(body, '2 · Les 3 questions');
   const q = el('ol', 'questions');
   ['Run à jour ?', 'Build avance ?', 'Un objectif en retard ?'].forEach(s => q.append(el('li', '', s)));
@@ -1707,10 +1964,10 @@ function weeklyReview(body) {
   const wlabel = w => 'S' + isoWeek(w[0]).w;
 
   const active = r => !r.archivedAt || r.archivedAt > ymd(weeks[0][0]);
-  const barsFor = (g, list) => list.forEach(r => {
+  const barsFor = (g, list, okOnly = false) => list.forEach(r => {
     g.append(el('span', 'lbl', r.name || 'Sans nom'));
     weeks.forEach(w => {
-      const a = adherence([r], w.filter(d => d <= t));
+      const a = adherence([r], w.filter(d => d <= t), false, okOnly);
       const b = el('div', 'b'); b.title = a.pct == null ? 'rien d’échu' : a.done + ' / ' + a.due;
       const fill = el('i'); fill.style.height = (a.pct ?? 0) + '%';
       fill.style.background = a.pct == null ? 'transparent' : a.pct >= 90 ? 'var(--green)' : a.pct >= 70 ? 'var(--amber)' : 'var(--red)';
@@ -1727,14 +1984,14 @@ function weeklyReview(body) {
     const now = indicatorState(ind, t);
     const dot = el('i'); dot.style.background = 'var(--' + now.col + ')';
     gh.append(dot, ind.name);
-    const linked = pro.filter(r => r.feeds === ind.id);
+    const linked = pro.filter(r => isBlock(r) && r.feeds === ind.id);
     if (now.col === 'red') {
-      // diagnostic de la semaine : la routine n'est pas tenue, ou le standard ne produit pas le résultat
-      const a = adherence(linked, weeks[3].filter(d => d <= t));
-      const [cls, txt] = !linked.length ? ['none', 'Aucune routine ne nourrit cet indicateur']
+      // diagnostic de la semaine : les blocs rattachés ne sont pas tenus, ou le standard ne produit pas le résultat
+      const a = adherence(linked, weeks[3].filter(d => d <= t), false, true);
+      const [cls, txt] = !linked.length ? ['none', 'Aucun bloc ne nourrit cet indicateur']
         : a.pct == null || a.pct >= 80 ? ['std', 'Standard à revoir'] : ['disc', 'Discipline'];
       const dg = el('span', 'diag ' + cls, txt);
-      dg.title = linked.length ? 'Tenue des routines rattachées cette semaine : ' + (a.pct == null ? 'rien d’échu' : a.pct + ' %') : '';
+      dg.title = linked.length ? 'Blocs rattachés atteints (✓) cette semaine : ' + (a.pct == null ? 'rien d’échu' : a.pct + ' %') : '';
       gh.append(dg);
     }
     grp.append(gh);
@@ -1749,23 +2006,23 @@ function weeklyReview(body) {
       v.title = inWeek ? 'saisi le ' + shortDate(got.date) + ' · cible ' + ind.target : 'aucune saisie';
       g.append(v);
     });
-    barsFor(g, linked);
-    if (!linked.length) { const n = el('span', 'muted', 'Aucune routine rattachée.'); n.style.gridColumn = '1 / -1'; g.append(n); }
+    barsFor(g, linked, true);
+    if (!linked.length) { const n = el('span', 'muted', 'Aucun bloc rattaché.'); n.style.gridColumn = '1 / -1'; g.append(n); }
     grp.append(g); body.append(grp);
   });
-  const pil = pro.filter(r => !state.indicators.some(i => i.id === r.feeds));
+  const pil = pro.filter(r => !isBlock(r));
   if (pil.length) {
     const grp = el('div', 'grp-ind'); grp.append(el('div', 'gh', 'Pilotage'));
     const g = el('div', 'bars'); head(g); barsFor(g, pil); grp.append(g); body.append(grp);
   }
 
-  h3(body, '2 · Raisons des O et ×');
-  // O et × des 4 semaines, par section (routine supprimée : pro)
-  const issuesOf = section => {
+  h3(body, '2 · Raisons des O et × (pilotage)');
+  // O et × des 4 semaines, par section et par kind (routine supprimée : pro, check)
+  const issuesOf = (section, kind) => {
     const out = [];
     for (const w of weeks) for (const d of w) for (const [rid, l] of Object.entries(state.log[ymd(d)] || {})) {
       const r = state.routines.find(x => x.id === rid);
-      if (l.status !== 'ok' && (r ? r.section : 'pro') === section) out.push({ d, rid, l, w });
+      if (l.status !== 'ok' && (r ? r.section : 'pro') === section && (!kind || (r ? r.kind : 'check') === kind)) out.push({ d, rid, l, w });
     }
     return out;
   };
@@ -1782,7 +2039,7 @@ function weeklyReview(body) {
     });
     body.append(el('div', 'muted', 'Pareto des catégories, 4 semaines'), p);
   };
-  const all = issuesOf('pro');
+  const all = issuesOf('pro', 'check');
   if (!all.length) body.append(el('div', 'muted', 'Aucun O ni × sur 4 semaines.'));
   else pareto(all);
   // pattern : même catégorie ≥ 2 fois sur une même routine en 4 semaines
@@ -1804,19 +2061,29 @@ function weeklyReview(body) {
     body.append(gp);
   });
 
-  h3(body, '3 · Perso');
-  const perso = state.routines.filter(r => r.section === 'perso' && active(r)).sort(byTime);
-  if (!perso.length) body.append(el('div', 'muted', 'Aucune routine perso.'));
+  h3(body, '3 · Exécution');
+  const exe = pro.filter(isBlock);
+  if (!exe.length) body.append(el('div', 'muted', 'Aucun bloc pro.'));
   else {
-    const g = el('div', 'bars'); head(g); barsFor(g, perso); body.append(g);
-    const pi = issuesOf('perso');
+    body.append(el('div', 'muted', 'Objectifs atteints (✓) par bloc'));
+    const g = el('div', 'bars'); head(g); barsFor(g, exe, true); body.append(g);
+    const xi = issuesOf('pro', 'block');
+    if (xi.length) pareto(xi); else body.append(el('div', 'muted', 'Aucun O ni × sur les blocs en 4 semaines.'));
+  }
+
+  h3(body, '4 · Perso');
+  const perso = state.routines.filter(r => r.section === 'perso' && isBlock(r) && active(r)).sort(byTime);
+  if (!perso.length) body.append(el('div', 'muted', 'Aucun bloc perso.'));
+  else {
+    const g = el('div', 'bars'); head(g); barsFor(g, perso, true); body.append(g);
+    const pi = issuesOf('perso', 'block');
     if (pi.length) pareto(pi); else body.append(el('div', 'muted', 'Aucun O ni × perso sur 4 semaines.'));
   }
 
-  h3(body, '4 · Actions ouvertes et en retard');
+  h3(body, '5 · Actions ouvertes et en retard');
   actionList(body, true);
 
-  h3(body, '5 · Changements décidés au standard');
+  h3(body, '6 · Changements décidés au standard');
   const wk = weekKey(t);
   const off = state.reviews[wk]?.offReview || [];
   if (off.length) {
@@ -1892,11 +2159,19 @@ function addRoutine(secKey) {
     cadence: secKey === 'weekly' ? { type: 'weekly', days: [true, false, false, false, false, false, false] }
       : secKey === 'monthly' ? { type: 'monthly', rule: 'nth', nth: 1, weekday: 0 } : { type: 'daily', days: WEEKDAYS() },
   });
+  r.cadences = [{ from: ymd(today()), cadence: r.cadence }]; delete r.cadence; r.feeds = 'pilotage'; r.kind = 'check';
+  state.routines.push(r); save();
+  openDrawer('routine', r.id);
+  setTimeout(() => $('drawer').querySelector('[data-k="name"]')?.focus(), 60);
+}
+function addBlock() {
+  const r = routine({ section: scope, kind: 'block', line: '', duration: 60, cadence: { type: 'daily', days: WEEKDAYS() } });
   r.cadences = [{ from: ymd(today()), cadence: r.cadence }]; delete r.cadence; r.feeds = 'pilotage';
   state.routines.push(r); save();
   openDrawer('routine', r.id);
   setTimeout(() => $('drawer').querySelector('[data-k="name"]')?.focus(), 60);
 }
+$('add-block').addEventListener('click', addBlock);
 const setEdit = on => { editMode = on; pending = null; render(); };
 $('edit-off').addEventListener('click', () => setEdit(false));
 // Hors revue : un motif est obligatoire, et il est tracé dans la revue de la semaine
