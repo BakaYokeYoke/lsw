@@ -434,6 +434,23 @@
   .syncbar button.link { color: var(--ink); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
   .syncbar input { border: 1px solid var(--grid); border-radius: 7px; padding: 5px 9px; outline: none; min-width: 220px; }
   .syncbar input:focus { border-color: var(--ink); }
+
+  /* --- Écran de connexion obligatoire (version en ligne) --- */
+  .gate { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px;
+    background: rgba(31,35,40,.45); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  .gate-card { background: var(--paper); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.25); width: min(420px, 100%); padding: 28px 26px 24px; }
+  .gate-card .eyebrow { margin-bottom: 4px; }
+  .gate-card h2 { margin: 0 0 8px; font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+  .gate-card p { margin: 0 0 16px; color: var(--muted); line-height: 1.5; }
+  .gate-card input { width: 100%; border: 1px solid var(--grid); border-radius: 9px; padding: 10px 12px; font-size: 15px; outline: none; margin-bottom: 10px; }
+  .gate-card input:focus { border-color: var(--ink); }
+  .gate-card .btn.dark { width: 100%; padding: 10px; font-size: 14.5px; }
+  .gate-card .err { color: var(--ko); font-size: 13px; margin-top: 10px; }
+  .gate-card .sent { background: #eef9e8; border-radius: 9px; padding: 12px 14px; color: var(--ink); margin-bottom: 12px; line-height: 1.5; }
+  .gate-card .alt { display: flex; gap: 14px; justify-content: center; margin-top: 12px; font-size: 13px; }
+  .gate-card .alt button { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+  .gate-card .alt button:hover { color: var(--ink); }
+  body.gated { overflow: hidden; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -541,6 +558,7 @@
 <div class="confirm-bar" id="confirm-bar" hidden></div>
 <div class="backdrop" id="backdrop"></div>
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
+<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gate-title" hidden><div class="gate-card" id="gate-card"></div></div>
 
 <script>
 // =====================================================================
@@ -1954,7 +1972,7 @@ const SB_URL = 'https://tostptaepenvhacwlbck.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvc3RwdGFlcGVudmhhY3dsYmNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzODQ4ODMsImV4cCI6MjEwNjk2MDg4M30.nAHhvwOtx7xipMN5CPpPCeYRPYUM67gz63vagpSAJT0';
 const META = 'lsw-sync';
 const sb = window.supabase?.createClient(SB_URL, SB_KEY);
-let user = null, pushTimer = null, syncState = 'idle', syncMsg = '', loginOpen = false;
+let user = null, pushTimer = null, syncState = 'idle', syncMsg = '';
 
 // meta : { user, dirty, changedAt, syncedAt } — dirty = modifications locales pas encore envoyées
 function readMeta() { try { return JSON.parse(localStorage.getItem(META)) || {}; } catch { return {}; } }
@@ -2011,35 +2029,59 @@ function renderSyncBar() {
     bar.append(el('span', 'dot'), 'Données enregistrées sur cet appareil uniquement · la sauvegarde en ligne fonctionne depuis la version publiée');
     return;
   }
-  if (!loginOpen) {
-    bar.append(el('span', 'dot'), syncMsg || 'Données enregistrées sur cet appareil uniquement');
-    const b = el('button', 'link', 'Se connecter pour sauvegarder et synchroniser');
-    b.addEventListener('click', () => { loginOpen = true; syncMsg = ''; renderSyncBar(); $('sb-email')?.focus(); });
-    bar.append(b);
-    return;
+  bar.append(el('span', 'dot'), 'Non connecté');
+}
+
+// Version en ligne : tant qu'on n'est pas connecté, la page est grisée et non modifiable.
+// (Ouverte en file://, la connexion est impossible : l'app reste utilisable sur cet appareil.)
+let authReady = false, gateSentTo = '', gateErr = '';
+const gated = () => !!sb && location.protocol !== 'file:' && !user;
+function renderGate() {
+  const on = gated();
+  $('gate').hidden = !on;
+  document.body.classList.toggle('gated', on);
+  document.querySelectorAll('body > .wrap, #drawer, #pop').forEach(n => { n.inert = on; });
+  if (!on) return;
+  const card = $('gate-card'); card.innerHTML = '';
+  card.append(el('div', 'eyebrow', 'Leader Standard Work'));
+  const h = el('h2', '', 'Connecte-toi'); h.id = 'gate-title'; card.append(h);
+  if (!authReady) { card.append(el('p', '', 'Vérification de la connexion…')); return; }
+  if (gateSentTo) {
+    card.append(el('div', 'sent', 'Lien envoyé à ' + gateSentTo + '. Ouvre-le sur cet appareil : tu reviendras ici, connecté.'));
+    const alt = el('div', 'alt');
+    const again = el('button', '', 'Renvoyer le lien'); again.addEventListener('click', () => sendLink(gateSentTo));
+    const other = el('button', '', 'Changer d’e-mail'); other.addEventListener('click', () => { gateSentTo = ''; gateErr = ''; renderGate(); });
+    alt.append(again, other); card.append(alt);
+  } else {
+    card.append(el('p', '', 'Pour éditer ta LSW, la sauvegarder et la retrouver sur tous tes appareils. Pas de mot de passe : tu reçois un lien par e-mail.'));
+    const i = el('input'); i.type = 'email'; i.id = 'gate-email'; i.placeholder = 'ton e-mail'; i.autocomplete = 'email';
+    const go = el('button', 'btn dark', 'Recevoir le lien de connexion');
+    const send = () => { const v = i.value.trim(); if (!/^\S+@\S+\.\S+$/.test(v)) { gateErr = 'Saisis une adresse e-mail valide.'; renderGate(); $('gate-email').value = v; $('gate-email').focus(); return; } sendLink(v, go); };
+    go.addEventListener('click', send);
+    i.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+    card.append(i, go);
+    setTimeout(() => i.focus(), 30);
   }
-  const i = el('input'); i.type = 'email'; i.id = 'sb-email'; i.placeholder = 'ton e-mail';
-  const go = el('button', 'btn dark', 'Recevoir le lien');
-  const send = async () => {
-    const email = i.value.trim(); if (!email) { i.focus(); return; }
-    go.disabled = true;
-    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-    loginOpen = false;
-    setSync(error ? 'err' : 'idle', error ? 'Envoi impossible : ' + error.message : 'Lien envoyé à ' + email + ' · ouvre-le sur cet appareil');
-  };
-  go.addEventListener('click', send);
-  i.addEventListener('keydown', e => { if (e.key === 'Enter') send(); if (e.key === 'Escape') { loginOpen = false; renderSyncBar(); } });
-  const no = el('button', 'btn ghost', 'Annuler'); no.addEventListener('click', () => { loginOpen = false; renderSyncBar(); });
-  bar.append(i, go, no);
+  if (gateErr) card.append(el('div', 'err', gateErr));
+}
+async function sendLink(email, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Envoi…'; }
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+  gateErr = error ? 'Envoi impossible : ' + error.message : '';
+  gateSentTo = error ? '' : email;
+  renderGate();
+  if (error) { const i = $('gate-email'); if (i) i.value = email; }
 }
 
 if (sb) {
   sb.auth.onAuthStateChange((event, session) => {
     const was = user?.id;
     user = session?.user || null;
-    if (user && user.id !== was) setTimeout(pull, 0);
+    authReady = true;
+    if (user && user.id !== was) { gateSentTo = ''; gateErr = ''; setTimeout(pull, 0); }
     if (!user) setSync('idle', '');
     else renderSyncBar();
+    renderGate();
   });
   // retour sur l'onglet ou du réseau : envoyer ce qui attend, sinon récupérer la dernière version
   const resync = () => { if (!user) return; readMeta().dirty ? push() : pull(); };
@@ -2047,6 +2089,7 @@ if (sb) {
   window.addEventListener('online', resync);
 }
 renderSyncBar();
+renderGate();
 
 // =====================================================================
 applyFold();
